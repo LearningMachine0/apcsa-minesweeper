@@ -1,0 +1,20 @@
+AP CSA final project: text based minesweeper
+--------------------------------------------
+This is a text based minesweeper game, written in Java using Netbeans. Requires 
+an ANSI compliant terminal and jnativehook for keyboard input.
+
+Building
+I use Maven to build the project and manage the dependency. The commands I used
+for the project are as follows (assuming the commands are run in the project
+root directory):
+$ mvn package
+$ java -jar target/<result jar file>
+
+Running
+The program must be run in an ANSI terminal, otherwise the formatting will not 
+work. Because of the jnativehook dependency, the program is not platform
+independent.
+The default lines and columns the game uses is hardcoded. If you want to use the
+terminal's sizes, pass the LINES and COLUMNS environment variables when
+executing the program.
+$ LINES=$LINES COLUMNS=$COLUMNS java -jar ...
