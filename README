@@ -13,7 +13,8 @@ $ java -jar target/<result jar file>
 Running
 The program must be run in an ANSI terminal, otherwise the formatting will not 
 work. Because of the jnativehook dependency, the program is not platform
-independent.
+independent. Due to the dependency, this program can only run correctly with
+X11 under Linux.
 The default lines and columns the game uses is hardcoded. If you want to use the
 terminal's sizes, pass the LINES and COLUMNS environment variables when
 executing the program.

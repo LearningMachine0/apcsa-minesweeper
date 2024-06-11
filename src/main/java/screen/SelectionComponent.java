@@ -146,6 +146,7 @@ public class SelectionComponent extends Component implements NativeKeyListener {
                     // component from the screen component list
                     this.finalChoice = true;
                     Screen.removeComponent(this);
+                    GlobalScreen.removeNativeKeyListener(this);
                 // Ignore any other key presses
                 default: break;
             }

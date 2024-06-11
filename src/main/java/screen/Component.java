@@ -151,18 +151,37 @@ abstract class Component {
      * @throws IndexOutOfBoundsException
      */
     public void addDisplayAttr(SGR attr, int row, int startCol, int endCol) throws IndexOutOfBoundsException {
-        // Check bounds
-        if (row < 0 || row >= sizeY
-            || startCol < 0 || startCol > sizeX
-            || endCol < 0 || endCol > sizeX) {
-            throw new IndexOutOfBoundsException();
+        for (int c = startCol; c < endCol; c++) {
+            addDisplayAttr(attr, row, c);
+        }
+    }
+    
+    /**
+     * Add a display attribute for a character at the specified index.
+     * 
+     * @param attr  the attribute
+     * @param row   the row of the character
+     * @param col   the column of the character
+     * 
+     * @throws IndexOutOfBoundsException 
+     */
+    public void addDisplayAttr(SGR attr, int row, int col) throws IndexOutOfBoundsException {
+        // Skip if attr is null
+        if (attr == null) return;
+        
+        if (row < 0 || row >= sizeY || col < 0 || col >= sizeX) {
+            throw new IndexOutOfBoundsException(
+                String.format(
+                    "attr %s row %d col %d out of bounds",
+                    attr.getName(), row, col
+                )
+            );
         }
         
-        for (int col = startCol; col < endCol; col++) {
-            if (displayAttr[row][col] == null)
-                this.displayAttr[row][col] = new ArrayList();
-            this.displayAttr[row][col].add(attr);
+        if (displayAttr[row][col] == null) {
+            this.displayAttr[row][col] = new ArrayList<>();
         }
+        displayAttr[row][col].add(attr);
     }
     
     /**

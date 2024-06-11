@@ -63,6 +63,10 @@ public enum SGR {
         return "\033[" + n + "m";
     }
     
+    public String getName() {
+        return super.toString();
+    }
+    
     public byte[] getBytes() {
         return toString().getBytes();
     }

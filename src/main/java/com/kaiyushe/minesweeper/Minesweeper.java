@@ -67,6 +67,7 @@ public class Minesweeper implements NativeKeyListener {
 
     /**
      * The current position of the cursor in relation to the board
+     * (1, 1) is top left, and follows 2D array coordinates
      */
     private int cursorX, cursorY;
 
@@ -82,18 +83,9 @@ public class Minesweeper implements NativeKeyListener {
     private boolean gameWon;
 
     /**
-     * true for mine, false for empty
+     * 2D array representing the board cells
      */
-    private boolean[][] mines;
-
-    /**
-     * Numerical representation of the board state<br>
-     * unopened -2<br>
-     * flagged  -1<br>
-     * no mine  0<br>
-     * numMines >0 (adjacent)
-     */
-    private byte[][] board;
+    private Cell[][] cells;
 
     /**
      * Difficulty played
@@ -124,11 +116,6 @@ public class Minesweeper implements NativeKeyListener {
     private CharArrayComponent boardScreen;
 
     /**
-     * The char[][] array which stores the characters to be drawn
-     */
-    private char[][] boardChars;
-
-    /**
      * Time at which the game started in millis
      */
     private long startTimeMillis;
@@ -147,14 +134,130 @@ public class Minesweeper implements NativeKeyListener {
     /**
      * Filename for the XML score file
      */
-    private String scoreFileName = "minesweeper_scores.xml";
+    private final String scoreFileName = "minesweeper_scores.xml";
 
     class CoordPoint {
         final int x, y;
 
-        public CoordPoint(int x, int y) {
+        CoordPoint(int x, int y) {
             this.x = x;
             this.y = y;
+        }
+    }
+    
+    /**
+     * Class representing one cell of the board
+     */
+    class Cell {
+        /**
+         * Set to true if the cell is a mine, false if not
+         */
+        boolean isMine;
+        
+        /**
+         * Cells are open if they have been dug by the user or opened by
+         * openCell(). Flagged cells are not open.
+         */
+        boolean isOpen;
+        
+        boolean isFlagged;
+        
+        /**
+         * Number of adjacent mines. If 0, there are no adjacent mines.
+         */
+        byte numAdjacentMines;
+        
+        
+        Cell(boolean isMine, boolean isOpen, boolean isFlagged, byte numAdjacentMines) {
+            this.isMine = isMine;
+            this.isOpen = isOpen;
+            this.isFlagged = isFlagged;
+            this.numAdjacentMines = numAdjacentMines;
+        }
+        
+        /**
+         * No-argument constructor - assumes values are going to be filled later
+         */
+        Cell() {
+            this.isOpen = false;
+            this.isFlagged = false;
+            this.isMine = false;
+            this.numAdjacentMines = 0;
+        }
+        
+        /**
+         * Returns a char representation of the cell. Used by drawBoard().<br>
+         * When showMine is true, '%' is returned if the cell is a mine
+         * 
+         * @return a char representation of this cell
+         */
+        char getCellChar(boolean showMine) {
+            if (showMine && isMine) {
+                return '%';
+            }
+            
+            if (isFlagged) {
+                return 'F';
+            }
+            
+            if (isOpen) {
+                if (numAdjacentMines == 0) {
+                    return ' ';
+                }
+                return (char)(numAdjacentMines + '0');
+            } else {
+                return 'C';
+            }
+        }
+        
+        /**
+         * Cell numbers:<br>
+         * - 1 : FGBRIGHTBLUE<br>
+         * - 2 : FGGREEN<br>
+         * - 3 : FGBRIGHTRED<br>
+         * - 4 : FGBLUE<br>
+         * - 5 : FGRED<br>
+         * - 6 : FGCYAN<br>
+         * - 7 : FGBLACK<br>
+         * - 8 : FGGREY<br>
+         *
+         * Objects:<br>
+         * - flag : FGRED<br>
+         * - mine : FGBLACK<br>
+         *
+         * Unopened and empty cells don't have display attributes; null is
+         * returned.
+         * 
+         * @return the display attribute associated with the cell
+         */
+        SGR getCellDisplayAttr() {
+            if (isFlagged) {
+                return SGR.FGRED;
+            }
+            if (isOpen) {
+                switch (numAdjacentMines) {
+                    case 1:
+                        return SGR.FGBRIGHTBLUE;
+                    case 2:
+                        return SGR.FGGREEN;
+                    case 3:
+                        return SGR.FGBRIGHTRED;
+                    case 4:
+                        return SGR.FGBLUE;
+                    case 5:
+                        return SGR.FGRED;
+                    case 6:
+                        return SGR.FGCYAN;
+                    case 7:
+                        return SGR.FGBLACK;
+                    case 8:
+                        return SGR.FGGREY;
+                    default:
+                        return null;
+                }
+            } else {
+                return null;
+            }
         }
     }
 
@@ -167,6 +270,9 @@ public class Minesweeper implements NativeKeyListener {
     public void nativeKeyPressed(NativeKeyEvent e) {
         // Immediately exit if user pressed "q"
         if (e.getKeyCode() == NativeKeyEvent.VC_Q) {
+            try {
+                GlobalScreen.unregisterNativeHook();
+            } catch (NativeHookException ex) {}
             System.exit(0);
         }
 
@@ -174,14 +280,18 @@ public class Minesweeper implements NativeKeyListener {
             switch (e.getKeyCode()) {
                 // Mine cell selection
                 // If the new selection is out of bounds, don't change it
+                // Cursor coordinates follow 2D array coordinates, so up and
+                // down are "flipped"
                 case NativeKeyEvent.VC_UP:
-                    if (cursorY < sizeY) {
-                        this.cursorY++;
+                    // Decrement cursorY
+                    if (cursorY > 0) {
+                        this.cursorY--;
                     }
                     break;
                 case NativeKeyEvent.VC_DOWN:
-                    if (cursorY > 0) {
-                        this.cursorY--;
+                    // Increment cursorY
+                    if (cursorY < sizeY) {
+                        this.cursorY++;
                     }
                     break;
                 case NativeKeyEvent.VC_RIGHT:
@@ -198,10 +308,19 @@ public class Minesweeper implements NativeKeyListener {
                 // Mine cell selection
                 // VC_D for open, VC_F for flag
                 case NativeKeyEvent.VC_D:
-                    handleCellOpen(new CoordPoint(cursorX, cursorY));
+                    try {
+                        handleCellOpen(new CoordPoint(cursorX, cursorY));
+                    } catch (NativeHookException ex) {
+                        
+                    }
                     break;
+
                 case NativeKeyEvent.VC_F:
-                    handleCellFlag(new CoordPoint(cursorX, cursorY));
+                    try {
+                        handleCellFlag(new CoordPoint(cursorX, cursorY));
+                    } catch (NativeHookException ex) {
+                        
+                    }
                     break;
 
                 // Ignore all other keypresses
@@ -209,8 +328,9 @@ public class Minesweeper implements NativeKeyListener {
                     break;
             }
             drawGame();
-        } else {
-            return;
+            if (!isRunning) {
+                System.exit(0);
+            }
         }
     }
     
@@ -219,10 +339,11 @@ public class Minesweeper implements NativeKeyListener {
      * 
      * @param coord 
      */
-    private void handleCellOpen(CoordPoint coord) {
-        if (mines[coord.y][coord.x]) {
+    private void handleCellOpen(CoordPoint coord) throws NativeHookException {
+        if (cells[coord.y][coord.x].isMine) {
             // Selection is a mine
             this.isRunning = false;
+            GlobalScreen.unregisterNativeHook();
             this.endTimeMillis = System.currentTimeMillis();
         } else {
             openCell(coord);
@@ -236,96 +357,95 @@ public class Minesweeper implements NativeKeyListener {
      * the program.
      * 
      * @param coord 
-     */
-    private void handleCellFlag(CoordPoint coord) {
-        if (board[coord.y][coord.x] == -2) {
-            this.board[coord.y][coord.x] = -1;
-            this.numFlagsPlaced++;
-            if (mines[coord.y][coord.x]) {
-                this.numFlagged++;
+     */    
+    private void handleCellFlag(CoordPoint coord) throws NativeHookException {
+        if (!cells[coord.y][coord.x].isOpen) {
+            if (!cells[coord.y][coord.x].isFlagged) {
+                cells[coord.y][coord.x].isFlagged = true;
+                this.numFlagsPlaced++;
+                if (cells[coord.y][coord.x].isMine) {
+                    this.numFlagged++;
+                }
+            } else {
+                cells[coord.y][coord.x].isFlagged = false;
+                this.numFlagsPlaced--;
+                if (cells[coord.y][coord.x].isMine) {
+                    this.numFlagged--;
+                }
             }
             if (numFlagged == difficulty.numMines && numFlagged == numFlagsPlaced) {
                 // Game won
                 this.isRunning = false;
                 this.gameWon = true;
+                GlobalScreen.unregisterNativeHook();
+                this.endTimeMillis = System.currentTimeMillis();
                 long timeTaken = endTimeMillis - startTimeMillis;
                 writeScore(timeTaken, dateTimeStart);
-                drawGame();
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException exc) {
-                    System.exit(1);
-                }
-                System.exit(0);
             }
         }
     }
 
     /**
-     * Fill the mines array with n mines (set element to true), randomly spaced.
-     * The number of mines is determined by the difficulty level
-     *
-     * @param n
+     * Initialises the Cell 2D array:<br>
+     * - Instantiating all Cell objects<br>
+     * - Fill the board with n mines, randomly spaced<br>
+     * - Set all adjacent cell numbers<br>
+     * 
+     * @param n the number of mines to fill
      */
-    private void fillBoard(int n) {
-        Set<CoordPoint> points = new HashSet<>();
-
-        // Have no repeating points
-        while(points.size() != n) {
-            points.add(
+    private void initBoard(int n) {
+        // Initialise all Cell objects
+        for (int r = 0; r < sizeY; r++) {
+            for (int c = 0; c < sizeX; c++) {
+                this.cells[r][c] = new Cell();
+            }
+        }
+        
+        // Mine filling
+        Set<CoordPoint> mineCoords = new HashSet<>();
+        
+        while (mineCoords.size() != n) {
+            mineCoords.add(
                 new CoordPoint(
-                    (int)(Math.random() * mines[0].length),
-                    (int)(Math.random() * mines.length)
+                    (int)(Math.random() * sizeX),
+                    (int)(Math.random() * sizeY)
                 )
             );
         }
-
-        for (CoordPoint p : points) {
-            this.mines[p.y][p.x] = true;
+        
+        for (CoordPoint p : mineCoords) {
+            cells[p.y][p.x].isMine = true;
         }
+        
+        // Set adjacent cell numbers
+        fillAdjacentMineNumbers();
     }
-
+    
     /**
      * Counts the number of adjacent mines at CoordPoint cell
      * If the point passed is a mine, -1 is returned
      *
      * @param c the mine coordinate to check
+     * 
+     * @return number of adjacent mines
      */
-    public byte countAdjacentMines(CoordPoint c) {
-        if (mines[c.y][c.x])
+    private byte countAdjacentMines(CoordPoint coord) {
+        Cell cell = cells[coord.y][coord.x];
+        if (cell.isMine) {
             return -1;
-
+        }
+        
         byte numMines = 0;
-        for (int y = c.y - 1; y <= c.y + 1; y++) {
-            for (int x = c.x - 1; x <= c.x + 1; x++) {
-                // Check bounds
-                if (x < 0 || x >= sizeX || y < 0 || y >= sizeY) {
-                    continue;
-                }
-                if (mines[y][x]) {
-                    numMines++;
+        for (int dr = -1; dr <= 1; dr += 2) {
+            for (int dc = -1; dc <= 1; dc += 2) {
+                int r = coord.y + dr, c = coord.x + dc;
+                if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
+                    numMines += cells[r][c].isMine ? 1 : 0;
                 }
             }
         }
+        
         return numMines;
-    }
-
-    /**
-     * Update the board status with the selected coordinate. Assumes the
-     * coordinate is not a mine
-     *
-     * @param coord the coordinate
-     */
-    private void updateBoard(CoordPoint coord) throws IllegalArgumentException {
-        int x = coord.x, y = coord.y;
-
-        // Check if coordinate is actually unopened. If not, raise exception
-        if (board[y][x] != -2)
-            throw new IllegalArgumentException();
-
-        // Recursively open the surrounding cells until the perimeter cells have
-        // adjacent mine cells
-        openCell(coord);
     }
 
     /**
@@ -335,20 +455,17 @@ public class Minesweeper implements NativeKeyListener {
      * @param coord
      */
     private void openCell(CoordPoint coord) {
-        // Return if cell is already opened or flagged
-        if (board[coord.y][coord.x] != -2) return;
-
-        byte numMines = countAdjacentMines(coord);
-        if (numMines != 0) {
-            this.board[coord.y][coord.x] = numMines;
-            return;
-        }
-
-        for (int y = coord.y - 1; y <= coord.y + 1; y++) {
-            for (int x = coord.x - 1; x <= coord.x + 1; x++) {
-                if (x < 0 || x >= sizeX || y < 0 || y >= sizeY)
-                    continue;
-                openCell(new CoordPoint(x, y));
+        Cell cell = cells[coord.y][coord.x];
+        
+        if (!cell.isMine && !cell.isOpen) {
+            cell.isOpen = true;
+            for (int dr = -1; dr <= 1; dr += 2) {
+                for (int dc = -1; dc <= 1; dc += 2) {
+                    int r = coord.y + dr, c = coord.x + dc;
+                    if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
+                        openCell(new CoordPoint(c, r));
+                    }
+                }
             }
         }
     }
@@ -466,100 +583,35 @@ public class Minesweeper implements NativeKeyListener {
             System.exit(1);
         }
     }
-
+    
     /**
-     * Creates the board to be drawn and updates boardScreen<br>
-     * If showMines is true, all unflagged mines are shown<br>
-     * The background for the board is white
-     * <br><br>
-     * <b>Colours</b><br>
-     * Names are relative to the names under SGR<br>
-     * Numbers:<br>
-     * - 1 : FGBRIGHTBLUE<br>
-     * - 2 : FGGREEN<br>
-     * - 3 : FGBRIGHTRED<br>
-     * - 4 : FGBLUE<br>
-     * - 5 : FGRED<br>
-     * - 6 : FGCYAN<br>
-     * - 7 : FGBLACK<br>
-     * - 8 : FGGREY<br>
-     *
-     * Objects:<br>
-     * - flag : 'F' : FGRED<br>
-     * - mine : '%' : FGBLACK<br>
-     * - cursor : UNDERLINE<br>
-     *
-     * @param showMines the flag to show mines
+     * Creates the board to be drawn and updates boardScreen. If showMines is
+     * true, all mines are shown.
+     * 
+     * @param showMines boolean to set whether to show mines or not
      */
     private void drawBoard(boolean showMines) {
-        char[][] drawnBoard = new char[sizeY][sizeX];
-
-        for (int y = 0; y < sizeY; y++) {
-            boardScreen.addDisplayAttr(SGR.BGWHITE, y, 0, sizeX);
-            for (int x = 0; x < sizeX; x++) {
-                if (board[y][x] == -1) {
-                    drawnBoard[y][x] = 'F';
-                    boardScreen.addDisplayAttr(SGR.FGRED, y, x, x + 1);
-                } else if (board[y][x] > 0) {
-                    // Convert int to char by adding '0' offset and casting
-                    drawnBoard[y][x] = (char)(board[y][x] + '0');
-                    SGR FGColour;
-                    switch (board[y][x]) {
-                        case 1:
-                            FGColour = SGR.FGBRIGHTBLUE;
-                            break;
-                        case 2:
-                            FGColour = SGR.FGGREEN;
-                            break;
-                        case 3:
-                            FGColour = SGR.FGBRIGHTRED;
-                            break;
-                        case 4:
-                            FGColour = SGR.FGBLUE;
-                            break;
-                        case 5:
-                            FGColour = SGR.FGRED;
-                            break;
-                        case 6:
-                            FGColour = SGR.FGCYAN;
-                            break;
-                        case 7:
-                            FGColour = SGR.FGBLACK;
-                            break;
-                        case 8:
-                            FGColour = SGR.FGGREY;
-                            break;
-                        default:
-                            FGColour = SGR.FGBLACK;
-                            break;
-                    }
-                    boardScreen.addDisplayAttr(FGColour, y, x, x + 1);
-                } else if (showMines && mines[x][y]) {
-                    drawnBoard[y][x] = '%';
-                    boardScreen.addDisplayAttr(SGR.FGRED, y, x, x + 1);
+        char[][] boardChars = new char[sizeY][sizeX];
+        boardScreen.clearAttr();
+        
+        for (int r = 0; r < sizeY; r++) {
+            boardScreen.addDisplayAttr(SGR.BGWHITE, r, 0, sizeX);
+            for (int c = 0; c < sizeX; c++) {
+                boardChars[r][c] = cells[r][c].getCellChar(showMines);
+                if (cells[r][c].getCellDisplayAttr() != null) {
+                    boardScreen.addDisplayAttr(cells[r][c].getCellDisplayAttr(), r, c);
+                } else {
+//                    System.out.println("null displ attr");
                 }
             }
         }
-        // Insert cursor position
-        boardScreen.addDisplayAttr(SGR.UNDERLINE, cursorY, cursorX, cursorX + 1);
-
-        this.boardChars = drawnBoard;
-//        debugBoard();
-        // Update the boardScreen component
-        this.boardScreen.setArray(boardChars);
+        
+        // Cursor
+        boardScreen.addDisplayAttr(SGR.UNDERLINE, cursorY, cursorX);
+        
+        boardScreen.setArray(boardChars);
     }
-
-    // for debugging
-    private void debugBoard() {
-        for (int y = 0; y < sizeY; y++) {
-            for (int x = 0; x < sizeX; x++) {
-                System.out.print(this.boardChars[y][x]);
-            }
-            System.out.println();
-        }
-        System.exit(0);
-    }
-    
+        
     /**
      * Calls drawBoard() and updates the flagsLeft LTextComponent, then calls
      * Screen.refresh(). If ifRunning is false, drawBoard() is called with
@@ -575,9 +627,9 @@ public class Minesweeper implements NativeKeyListener {
             Screen.removeComponent(flagsLeftComponent);
             // Show time taken
             long timeTaken = endTimeMillis - startTimeMillis;
-            Screen.addComponent(new LTextComponent(2, sizeY + 3, 1, String.format("Time taken: %d sec", timeTaken / 1000)));
+            Screen.addComponent(new LTextComponent(1, sizeY + 3, 1, String.format("Time taken: %d sec", timeTaken / 1000)));
             if (gameWon) {
-                Screen.addComponent(new LTextComponent(2, sizeY + 4, 1, "Game Won"));
+                Screen.addComponent(new LTextComponent(1, sizeY + 4, 1, "Game Won"));
             }
         }
         try {
@@ -588,6 +640,20 @@ public class Minesweeper implements NativeKeyListener {
         }
     }
 
+    /**
+     * Fills the adjacentMineNumbers array
+     */
+    private void fillAdjacentMineNumbers() {
+        for (int r = 0; r < sizeY; r++) {
+            for (int c = 0; c < sizeX; c++) {
+                if (cells[r][c].isMine) {
+                    continue;
+                }
+                this.cells[r][c].numAdjacentMines = countAdjacentMines(new CoordPoint(c, r));
+            }
+        }
+    }
+        
     private void runGame() throws IOException, InterruptedException, ParserConfigurationException, SAXException {
         // Title screen and game choice (choose difficulty/view past scores)
         LTextComponent title = new LTextComponent(2, 2, 1, "Minesweeper");
@@ -603,38 +669,60 @@ public class Minesweeper implements NativeKeyListener {
         Screen.addComponent(gameSelect);
         Screen.refresh();
         int selectInt = gameSelect.getChoice();
-//        Screen.removeComponent(gameSelect);
         Screen.clrscr();
         Screen.clearComponents();
-        if (selections[selectInt].equals("View scores")) {
+        if (selectInt == 3) {
             showScores();
-        } else if (selections[selectInt].equals("Exit")) {
+        } else if (selectInt == 4) {
             System.exit(0);
         }
-
+        
         // Start the game - init the boards/status vars and draw
         this.difficulty = Difficulty.getDifficulty(selections[selectInt]);
         this.sizeX = difficulty.sizeX;
         this.sizeY = difficulty.sizeY;
-        this.mines = new boolean[sizeY][sizeX];
-        this.board = new byte[sizeY][sizeX];
-        fillBoard(difficulty.numMines);
-        this.boardChars = new char[sizeY][sizeX];
-        this.boardScreen = new CharArrayComponent(2, 2, sizeX, sizeY, 1, boardChars);
+        
+        this.cells = new Cell[sizeY][sizeX];
+        initBoard(difficulty.numMines);
+        
+        // Initially fill boardScreen with an empty char array. Will be changed
+        // for each drawBoard() call
+        this.boardScreen = new CharArrayComponent(1, 1, sizeX, sizeY, 1, new char[sizeY][sizeX]);
         this.numFlagsPlaced = this.numFlagged = 0;
-
+        
         // flagsLeftComponent text will be set when the game starts
-        this.flagsLeftComponent = new LTextComponent(2, sizeY + 3, 1, "");
+        this.flagsLeftComponent = new LTextComponent(1, sizeY + 2, 1, "");
 
         Screen.addComponent(boardScreen);
         Screen.addComponent(flagsLeftComponent);
-        drawBoard(false);
 
-        // Start the timer
+        // Start the game and timer
         this.startTimeMillis = System.currentTimeMillis();
         this.dateTimeStart = ZonedDateTime.now();
         this.isRunning = true;
         this.gameWon = false;
+        drawGame();
+    }
+    
+    public static void testScreen() {
+        // CharArrayComponent test
+        int rows = 10, cols = 10;
+        char[][] testCharArray = new char[rows][cols];
+        CharArrayComponent ca = new CharArrayComponent(1, 1, rows, cols, 1, testCharArray);
+        for (int r = 0; r < rows; r++) {
+            ca.addDisplayAttr(SGR.BGWHITE, r, 0, cols);
+            for (int c = 0; c < cols; c++) {
+                testCharArray[r][c] = (char)((int)(Math.random() * 10) + '0');
+                ca.addDisplayAttr(SGR.FGBRIGHTRED, r, c);
+            }
+        }
+        Screen.addComponent(ca);
+        try {
+            Screen.refresh();
+        } catch (IOException ex) {
+            ex.printStackTrace();
+            System.exit(1);
+        }
     }
 
     public static void main(String[] args) throws NativeHookException, IOException, InterruptedException, ParserConfigurationException, SAXException {
@@ -666,5 +754,6 @@ public class Minesweeper implements NativeKeyListener {
 //        } catch (InterruptedException e) {}
 
         game.runGame();
+//        testScreen();
     }
 }

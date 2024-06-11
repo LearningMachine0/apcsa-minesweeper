@@ -179,6 +179,7 @@ public class Screen {
         for (int y = 0; y < numLines; y++) {
             for (int x = 0; x < numColumns; x++) {
                 if (result[y][x] == null) {
+//                    System.out.println("null cell detected");
                     result[y][x] = new DisplayCharacter(' ', null);
                 }
             }
@@ -202,14 +203,14 @@ public class Screen {
         String toPrint = "";
         
         for (int r = 0; r < numLines; r++) {
-//            stdout.write(String.format("\033[%d;%dH", r+1, 1).getBytes());
             toPrint += String.format("\033[%d;%dH", r + 1, 1);
             for (int c = 0; c < numColumns; c++) {
                 DisplayCharacter displayChar = screen[r][c];
                 if (displayChar.displayAttr != null) {
                     for (SGR a : displayChar.displayAttr) {
-//                        stdout.write(a.getBytes());
-                        toPrint += a;
+                        if (a != null) {
+                            toPrint += a;
+                        }
                     }
                 }
                 // Checks if the character is printable. If not, replace with a
@@ -217,11 +218,9 @@ public class Screen {
                 // those found on a keyboard.
                 // Reference: https://stackoverflow.com/questions/13925454/
                 if (Character.isLetterOrDigit(displayChar.character)
-                    || Pattern.matches("\\p{Punct}", displayChar.toString())) {
-//                    stdout.write(displayChar.character);
+                    || Pattern.matches("\\p{Punct}", String.valueOf(displayChar.character))) {
                     toPrint += displayChar.character;
                 } else {
-//                    stdout.write(" ".getBytes());
                     toPrint += " ";
                 }
 
@@ -229,7 +228,6 @@ public class Screen {
                 // Although unnecessary for many characters, this is safer than
                 // checking if the next character doesn't have the attribute and
                 // printing the end attribute
-//                stdout.write(SGR.RESET.getBytes());
                 toPrint += SGR.RESET;
             }
         }

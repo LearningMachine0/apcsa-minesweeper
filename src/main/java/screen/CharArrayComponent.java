@@ -63,8 +63,8 @@ public class CharArrayComponent extends Component {
         int sizeY = super.getSizeY();
         DisplayCharacter[][] result = new DisplayCharacter[sizeY][sizeX];
         
-        for (int r = 0; r < sizeX; r++) {
-            for (int c = 0; c < sizeY; c++) {
+        for (int r = 0; r < sizeY; r++) {
+            for (int c = 0; c < sizeX; c++) {
                 result[r][c] = new DisplayCharacter(
                         array[r][c],
                         super.getDisplayAttr(r, c)
