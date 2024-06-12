@@ -512,34 +512,35 @@ public class Minesweeper implements NativeKeyListener {
      *
      * @param coord
      */
-//    private void openCell(CoordPoint coord) {
-//        Cell cell = cells[coord.y][coord.x];
-//        
-//        if (!cell.isMine && !cell.isOpen) {
-//            cell.isOpen = true;
-//            if (cell.numAdjacentMines != 0) {
-//                return;
-//            }
-//            for (int dr = -1; dr <= 1; dr += 2) {
-//                for (int dc = -1; dc <= 1; dc += 2) {
-//                    int r = coord.y + dr, c = coord.x + dc;
-//                    if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
-//                        openCell(new CoordPoint(c, r));
-//                    }
-//                }
-//            }
-//        }
-//    }
+    private void openCell(CoordPoint coord) {
+        Cell cell = cells[coord.y][coord.x];
+        
+        if (!cell.isMine && !cell.isOpen) {
+            cell.isOpen = true;
+            if (cell.numAdjacentMines != 0) {
+                return;
+            }
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    int r = coord.y + dr, c = coord.x + dc;
+                    if (r == coord.y && c == coord.x) continue;
+                    if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
+                        openCell(new CoordPoint(c, r));
+                    }
+                }
+            }
+        }
+    }
     
     /**
      * Sets the given cell's isOpen to true. Does not recursively open.
      * 
      * @param coord 
      */
-    private void openCell(CoordPoint coord) {
-        Cell cell = cells[coord.y][coord.x];
-        cell.isOpen = true;
-    }
+//    private void openCell(CoordPoint coord) {
+//        Cell cell = cells[coord.y][coord.x];
+//        cell.isOpen = true;
+//    }
     
     class Score {
         final ZonedDateTime dateTime;
