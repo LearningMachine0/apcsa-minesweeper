@@ -51,6 +51,9 @@ import javax.xml.transform.stream.StreamResult;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import java.io.File;
+import java.io.FileWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.TransformerException;
@@ -162,16 +165,20 @@ public class Minesweeper implements NativeKeyListener {
         
         boolean isFlagged;
         
+        // Selected by the user cursor
+        boolean isSelected;
+        
         /**
          * Number of adjacent mines. If 0, there are no adjacent mines.
          */
         byte numAdjacentMines;
         
         
-        Cell(boolean isMine, boolean isOpen, boolean isFlagged, byte numAdjacentMines) {
+        Cell(boolean isMine, boolean isOpen, boolean isFlagged, boolean isSelected, byte numAdjacentMines) {
             this.isMine = isMine;
             this.isOpen = isOpen;
             this.isFlagged = isFlagged;
+            this.isSelected = isSelected;
             this.numAdjacentMines = numAdjacentMines;
         }
         
@@ -181,8 +188,9 @@ public class Minesweeper implements NativeKeyListener {
         Cell() {
             this.isOpen = false;
             this.isFlagged = false;
+            this.isSelected = false;
             this.isMine = false;
-            this.numAdjacentMines = 0;
+            this.numAdjacentMines = -1;
         }
         
         /**
@@ -196,14 +204,15 @@ public class Minesweeper implements NativeKeyListener {
                 return '%';
             }
             
+            if (isSelected) {
+                return 'S';
+            }
+            
             if (isFlagged) {
                 return 'F';
             }
             
             if (isOpen) {
-                if (numAdjacentMines == 0) {
-                    return ' ';
-                }
                 return (char)(numAdjacentMines + '0');
             } else {
                 return 'C';
@@ -260,20 +269,41 @@ public class Minesweeper implements NativeKeyListener {
             }
         }
     }
+    
+    private void printAdjacents() {
+        for (Cell[] cr : cells) {
+            for (Cell c : cr) {
+                System.out.print(c.numAdjacentMines + "\t");
+            }
+            System.out.println();
+        }
+    }
 
     public Minesweeper() {
         this.cursorX = 0;
         this.cursorY = 0;
+    }
+    
+    private void exitGame() {
+        try {
+            GlobalScreen.unregisterNativeHook();
+        } catch (NativeHookException ex) {
+            System.out.println("Unable to unregister native hook");
+        }
+        try {
+            Screen.clrscr();
+        } catch (IOException ex) {
+            
+        }
+        System.out.println(gameWon ? "Game win" : "Game lost");
+        System.exit(0);
     }
 
     @Override
     public void nativeKeyPressed(NativeKeyEvent e) {
         // Immediately exit if user pressed "q"
         if (e.getKeyCode() == NativeKeyEvent.VC_Q) {
-            try {
-                GlobalScreen.unregisterNativeHook();
-            } catch (NativeHookException ex) {}
-            System.exit(0);
+            exitGame();
         }
 
         if (isRunning) {
@@ -286,22 +316,26 @@ public class Minesweeper implements NativeKeyListener {
                     // Decrement cursorY
                     if (cursorY > 0) {
                         this.cursorY--;
+                        updateSelectedCell();
                     }
                     break;
                 case NativeKeyEvent.VC_DOWN:
                     // Increment cursorY
-                    if (cursorY < sizeY) {
+                    if (cursorY < sizeY - 1) {
                         this.cursorY++;
+                        updateSelectedCell();
                     }
                     break;
                 case NativeKeyEvent.VC_RIGHT:
-                    if (cursorX < sizeX) {
+                    if (cursorX < sizeX - 1) {
                         this.cursorX++;
+                        updateSelectedCell();
                     }
                     break;
                 case NativeKeyEvent.VC_LEFT:
                     if (cursorX > 0) {
                         this.cursorX--;
+                        updateSelectedCell();
                     }
                     break;
 
@@ -328,9 +362,9 @@ public class Minesweeper implements NativeKeyListener {
                     break;
             }
             drawGame();
-            if (!isRunning) {
-                System.exit(0);
-            }
+//            if (!isRunning) {
+//                System.exit(0);
+//            }
         }
     }
     
@@ -345,6 +379,13 @@ public class Minesweeper implements NativeKeyListener {
             this.isRunning = false;
             GlobalScreen.unregisterNativeHook();
             this.endTimeMillis = System.currentTimeMillis();
+            drawGame();
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException ex) {
+                
+            }
+            exitGame();
         } else {
             openCell(coord);
         }
@@ -384,12 +425,26 @@ public class Minesweeper implements NativeKeyListener {
             }
         }
     }
+    
+    /**
+     * Updates isSelected for the cell the cursor coords point to, and sets
+     * false to all other cells
+     */
+    private void updateSelectedCell() {
+        for (int r = 0; r < sizeY; r++) {
+            for (int c = 0; c < sizeX; c++) {
+                cells[r][c].isSelected = false;
+            }
+        }
+        cells[cursorY][cursorX].isSelected = true;
+    }
 
     /**
      * Initialises the Cell 2D array:<br>
      * - Instantiating all Cell objects<br>
      * - Fill the board with n mines, randomly spaced<br>
      * - Set all adjacent cell numbers<br>
+     * - Sets isSelected to true for the selected cell
      * 
      * @param n the number of mines to fill
      */
@@ -419,6 +474,9 @@ public class Minesweeper implements NativeKeyListener {
         
         // Set adjacent cell numbers
         fillAdjacentMineNumbers();
+        
+        // Set selected cell
+        cells[cursorY][cursorX].isSelected = true;
     }
     
     /**
@@ -436,8 +494,8 @@ public class Minesweeper implements NativeKeyListener {
         }
         
         byte numMines = 0;
-        for (int dr = -1; dr <= 1; dr += 2) {
-            for (int dc = -1; dc <= 1; dc += 2) {
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
                 int r = coord.y + dr, c = coord.x + dc;
                 if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
                     numMines += cells[r][c].isMine ? 1 : 0;
@@ -454,20 +512,33 @@ public class Minesweeper implements NativeKeyListener {
      *
      * @param coord
      */
+//    private void openCell(CoordPoint coord) {
+//        Cell cell = cells[coord.y][coord.x];
+//        
+//        if (!cell.isMine && !cell.isOpen) {
+//            cell.isOpen = true;
+//            if (cell.numAdjacentMines != 0) {
+//                return;
+//            }
+//            for (int dr = -1; dr <= 1; dr += 2) {
+//                for (int dc = -1; dc <= 1; dc += 2) {
+//                    int r = coord.y + dr, c = coord.x + dc;
+//                    if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
+//                        openCell(new CoordPoint(c, r));
+//                    }
+//                }
+//            }
+//        }
+//    }
+    
+    /**
+     * Sets the given cell's isOpen to true. Does not recursively open.
+     * 
+     * @param coord 
+     */
     private void openCell(CoordPoint coord) {
         Cell cell = cells[coord.y][coord.x];
-        
-        if (!cell.isMine && !cell.isOpen) {
-            cell.isOpen = true;
-            for (int dr = -1; dr <= 1; dr += 2) {
-                for (int dc = -1; dc <= 1; dc += 2) {
-                    int r = coord.y + dr, c = coord.x + dc;
-                    if (r >= 0 && r < sizeY && c >= 0 && c < sizeX) {
-                        openCell(new CoordPoint(c, r));
-                    }
-                }
-            }
-        }
+        cell.isOpen = true;
     }
     
     class Score {
@@ -482,105 +553,32 @@ public class Minesweeper implements NativeKeyListener {
         }
     }
     
-    /**
-     * Shows the last (up to) 5 plays. 
-     */
-    private void showScores() throws ParserConfigurationException, SAXException, IOException {
-        ArrayList<String> scoresStrings = new ArrayList<>();
-        ArrayList<Score> scores = new ArrayList<>();
-
+    private void showScores() throws IOException {
         File scoreFile = new File(scoreFileName);
-        if (!scoreFile.exists()) {
-            Screen.addComponent(new LTextComponent(1, 1, 1, "Score file does not exist."));
-            try {
-                Screen.refresh();
-                Thread.sleep(1000);
-            } catch (IOException | InterruptedException ex) {
-                System.exit(1);
-            }
-            System.exit(1);
+        if (scoreFile.exists()) {
+            Path filePath = scoreFile.toPath();
+            String scoreString = new String(Files.readAllBytes(filePath));
+            System.out.println(scoreString);
+            System.exit(0);
+        } else {
+            System.out.println("Score file does not exist");
         }
-        
-        Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(scoreFile);
-        NodeList nodeList = document.getElementsByTagName("score");
-        
-        for (int i = 0; i < nodeList.getLength(); i++) {
-            Node node = nodeList.item(i);
-            if (node.getNodeType() == Node.ELEMENT_NODE) {
-                Element element = (Element) node;
-                scores.add(
-                    new Score(
-                            ZonedDateTime.parse(element.getElementsByTagName("datetime").item(0).getTextContent(), DateTimeFormatter.ISO_ZONED_DATE_TIME),
-                            Difficulty.getDifficulty(element.getElementsByTagName("difficulty").item(0).getTextContent()),
-                            Long.parseLong(element.getElementsByTagName("timetaken").item(0).getTextContent())
-                    )
-                );
-            }
-        }
-        
-        scores.sort((score1, score2) -> score1.dateTime.compareTo(score2.dateTime));
-        
-        for (int s = scores.size() - 1; s >= scores.size() - 5 && s >= 0; s--) {
-            Score score = scores.get(s);
-            scoresStrings.add(
-                    String.format(
-                            "%s - %s, %d sec",
-                            score.dateTime.format(DateTimeFormatter.ISO_DATE),
-                            score.difficulty, score.timeTaken / 1000
-                    )
-            );
-        }
-        
-        // Show scores
-        int y = 1;
-        for (String s : scoresStrings) {
-            Screen.addComponent(new LTextComponent(1, y, 1, s));
-            y++;
-        }
-        Screen.refresh();
     }
 
     /**
-     * Writes the score (time in millis) and date to the scores.xml file.
+     * Writes the score (time in millis) and date to the scores file.
      */
     private void writeScore(long duration, ZonedDateTime datetime) {
-        try {
-            File scoreFile = new File(scoreFileName);
-            DocumentBuilder documentBuilder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
-            Document document;
-            Element root;
-            if (scoreFile.exists()) {
-                document = documentBuilder.parse(scoreFile);
-                document.getDocumentElement().normalize();
-                root = document.getDocumentElement();
-            } else {
-                document = documentBuilder.newDocument();
-                root = document.createElement("scores");
-                document.appendChild(root);
-            }
-            Element score = document.createElement("score");
-
-            Element dateTime = document.createElement("datetime");
-            dateTime.appendChild(document.createTextNode(datetime.format(DateTimeFormatter.ISO_ZONED_DATE_TIME)));
-            score.appendChild(dateTime);
-
-            Element timeTaken = document.createElement("timetaken");
-            timeTaken.appendChild(document.createTextNode("" + duration));
-            score.appendChild(timeTaken);
-            
-            Element difficulty = document.createElement("difficulty");
-            difficulty.appendChild(document.createTextNode(difficulty.toString()));
-            score.appendChild(difficulty);
-
-            root.appendChild(score);
-
-            Transformer transformer = TransformerFactory.newInstance().newTransformer();
-            DOMSource domSource = new DOMSource(document);
-            StreamResult streamResult = new StreamResult(scoreFile);
-            transformer.transform(domSource, streamResult);
-        } catch (IOException | ParserConfigurationException | TransformerException | DOMException | SAXException e) {
-            e.printStackTrace();
-            System.exit(1);
+        try (FileWriter scoreFile = new FileWriter(scoreFileName, true)) {
+            scoreFile.write(
+                String.format(
+                    "Date: %s\nTime taken: %d sec\n\n",
+                    datetime.format(DateTimeFormatter.ISO_DATE_TIME),
+                    duration / 1000
+                )
+            );
+        } catch (IOException ex) {
+            ex.printStackTrace();
         }
     }
     
@@ -673,6 +671,7 @@ public class Minesweeper implements NativeKeyListener {
         Screen.clearComponents();
         if (selectInt == 3) {
             showScores();
+            System.exit(0);
         } else if (selectInt == 4) {
             System.exit(0);
         }
@@ -684,6 +683,9 @@ public class Minesweeper implements NativeKeyListener {
         
         this.cells = new Cell[sizeY][sizeX];
         initBoard(difficulty.numMines);
+        // To debug adjacent cell numbers
+//        printAdjacents();
+//        exitGame();
         
         // Initially fill boardScreen with an empty char array. Will be changed
         // for each drawBoard() call
